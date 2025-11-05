@@ -1,7 +1,8 @@
+# Build output:
 /android/src/main/jniLibs/
+/ios/MoneroLwsf.xcframework/
 /lib/
 /node_modules/
-/src/index.js.flow
 /tmp/
 
 # iOS stuff:

@@ -1,6 +1,6 @@
 {
   "name": "react-native-monero-lwsf",
-  "version": "0.2.4",
+  "version": "0.1.0",
   "description": "React Native bindings for the monero-lwsf library",
   "homepage": "https://github.com/EdgeApp/react-native-monero-lwsf",
   "repository": {
@@ -16,7 +16,7 @@
     "/android/src/",
     "/CHANGELOG.md",
     "/ios/",
-    "/lib/",
+    "/lib/src/",
     "/package.json",
     "/react-native-monero-lwsf.podspec",
     "/README.md",
@@ -28,9 +28,9 @@
   "scripts": {
     "fix": "npm run lint -- --fix",
     "lint": "eslint .",
-    "prepack": "npm run update-sources",
+    "prepack": "npm run build-native",
     "prepare": "husky && lint-staged && rimraf lib && tsc",
-    "update-sources": "ZERO_AR_DATE=1 node -r sucrase/register ./scripts/update-sources.ts"
+    "build-native": "ZERO_AR_DATE=1 node -r sucrase/register ./scripts/build-native.ts"
   },
   "devDependencies": {
     "@types/node": "^24.10.0",

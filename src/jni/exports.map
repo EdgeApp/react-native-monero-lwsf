@@ -1,0 +1,6 @@
+{
+  global:
+    Java_app_edge_rnmonero_RnMoneroModule_*;
+  local:
+    *;
+};
