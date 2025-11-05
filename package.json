@@ -1,0 +1,49 @@
+{
+  "name": "react-native-monero-lwsf",
+  "version": "0.2.4",
+  "description": "React Native bindings for the monero-lwsf library",
+  "homepage": "https://github.com/EdgeApp/react-native-monero-lwsf",
+  "repository": {
+    "type": "git",
+    "url": "git@github.com:EdgeApp/react-native-monero-lwsf.git"
+  },
+  "license": "BSD-3-Clause",
+  "author": "Airbitz, Inc.",
+  "main": "lib/src/index.js",
+  "types": "lib/src/index.d.ts",
+  "files": [
+    "/android/build.gradle",
+    "/android/src/",
+    "/CHANGELOG.md",
+    "/ios/",
+    "/lib/",
+    "/package.json",
+    "/react-native-monero-lwsf.podspec",
+    "/README.md",
+    "/src/monero-wrapper/monero-methods.hpp"
+  ],
+  "lint-staged": {
+    "*.{js,ts}": "eslint"
+  },
+  "scripts": {
+    "fix": "npm run lint -- --fix",
+    "lint": "eslint .",
+    "prepack": "npm run update-sources",
+    "prepare": "husky && lint-staged && rimraf lib && tsc",
+    "update-sources": "ZERO_AR_DATE=1 node -r sucrase/register ./scripts/update-sources.ts"
+  },
+  "devDependencies": {
+    "@types/node": "^24.10.0",
+    "eslint": "^9.39.1",
+    "eslint-config-standard-kit": "^1.0.0",
+    "husky": "^9.1.7",
+    "lint-staged": "^16.2.6",
+    "prettier": "^3.6.2",
+    "rimraf": "^6.1.0",
+    "sucrase": "^3.35.0",
+    "typescript": "^5.9.3"
+  },
+  "dependencies": {
+    "cleaners": "^0.3.17"
+  }
+}
