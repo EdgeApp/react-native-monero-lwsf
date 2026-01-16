@@ -39,5 +39,7 @@ For this to work, you need:
 
 - A recent Android SDK, installed at `$ANDROID_HOME`
 - Xcode command-line tools
+- `autoreconf`, provided by `brew install autoconf`
+- `automake`, provided by `brew install automake`
 - `cmake`, provided by `brew install cmake`
 - `llvm-objcopy`, provided by `brew install llvm`
