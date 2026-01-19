@@ -2,7 +2,7 @@ import { defineLib } from '../utils/lib'
 
 export const libsodium = defineLib({
   name: 'libsodium',
-  nonce: 1,
+  cacheTag: '0',
 
   // v1.0.20:
   url: 'https://github.com/jedisct1/libsodium.git',

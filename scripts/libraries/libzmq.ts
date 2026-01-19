@@ -4,7 +4,7 @@ import { defineLib } from '../utils/lib'
 
 export const libzmq = defineLib({
   name: 'libzmq',
-  nonce: 2,
+  cacheTag: '0',
 
   // 4.3.5 (upstream wants 4.2.0)
   url: 'https://github.com/zeromq/libzmq.git',

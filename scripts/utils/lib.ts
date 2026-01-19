@@ -1,8 +1,6 @@
 import { mkdir, rm } from 'node:fs/promises'
 import { join } from 'node:path'
 
-import { asValue } from 'cleaners'
-
 import { fileExists } from './common'
 import type { Platform } from './platforms'
 import { addTask, type Build } from './tasks'
@@ -10,8 +8,9 @@ import { addTask, type Build } from './tasks'
 interface LibInfo {
   // Task & depdendencies:
   name: string
+  cacheTag?: string
   deps?: string[]
-  nonce?: number
+  libDeps?: string[]
 
   // Download location:
   url?: string
@@ -35,34 +34,24 @@ export function defineLib(lib: LibInfo): (platforms: Platform[]) => void {
 
   return platforms => {
     // Roll-up task depends on all platforms:
-    addTask(`${lib.name}.build`, asValue(undefined), async build => {
-      await Promise.all(
-        platforms.map(
-          async platform =>
-            await build.runTask(`${lib.name}.build.${platform.name}`)
-        )
-      )
+    addTask({
+      name: lib.name,
+      deps: platforms.map(platform => `${lib.name}.build.${platform.name}`),
+      async run() {}
     })
 
     // Individual platform builds:
     for (const platform of platforms) {
-      addTask(
-        `${lib.name}.build.${platform.name}`,
-        asValue(lib.nonce ?? 0),
-        async build => {
-          if (lib.deps != null) {
-            await Promise.all(
-              lib.deps.map(
-                async dep =>
-                  await build.runTask(`${dep}.build.${platform.name}`)
-              )
-            )
-          }
-
-          // Clone:
-          if (gitUrl != null) await build.runTask(`${lib.name}.clone`)
-          if (tarUrl != null) await build.runTask(`${lib.name}.download`)
-
+      addTask({
+        name: `${lib.name}.build.${platform.name}`,
+        cacheTag: lib.cacheTag,
+        deps: [
+          ...(lib.libDeps ?? []).map(dep => `${dep}.build.${platform.name}`),
+          ...(lib.deps ?? []),
+          ...(gitUrl != null ? [`${lib.name}.clone`] : []),
+          ...(tarUrl != null ? [`${lib.name}.download`] : [])
+        ],
+        async run(build) {
           // Create working directory:
           const workPath = join(
             build.basePath,
@@ -93,48 +82,55 @@ export function defineLib(lib: LibInfo): (platforms: Platform[]) => void {
           const prefixPath = join(build.basePath, 'prefix', platform.name)
           await mkdir(prefixPath, { recursive: true })
           await lib.build(build, platform, prefixPath)
-          return lib.nonce ?? 0
         }
-      )
+      })
     }
   }
 }
 
 export function addGitCloneTask(name: string, url: string, hash: string): void {
-  addTask<string>(`${name}.clone`, asValue(hash), async build => {
-    const downloadPath = join(build.basePath, 'downloads')
-    await mkdir(downloadPath, { recursive: true })
-    const repoPath = join(downloadPath, `${name}.git`)
+  addTask<string>({
+    name: `${name}.clone`,
+    cacheTag: hash,
+    async run(build) {
+      const downloadPath = join(build.basePath, 'downloads')
+      await mkdir(downloadPath, { recursive: true })
+      const repoPath = join(downloadPath, `${name}.git`)
 
-    if (await fileExists(repoPath)) {
-      await build.exec('git', [
-        '-C',
-        repoPath,
-        'fetch',
-        '--all',
-        '--tags',
-        '--prune'
-      ])
-    } else {
-      await build.exec('git', ['clone', '--bare', url, repoPath])
+      if (await fileExists(repoPath)) {
+        await build.exec('git', [
+          '-C',
+          repoPath,
+          'fetch',
+          '--all',
+          '--tags',
+          '--prune'
+        ])
+      } else {
+        await build.exec('git', ['clone', '--bare', url, repoPath])
+      }
+
+      return hash
     }
-
-    return hash
   })
 }
 
 export function addDownloadTask(name: string, url: string, hash: string): void {
-  addTask<string>(`${name}.download`, asValue(hash), async build => {
-    const downloadPath = join(build.basePath, 'downloads')
-    await mkdir(downloadPath, { recursive: true })
-    const filename = url.replace(/.*[/]/, '')
-    const filePath = join(downloadPath, filename)
+  addTask<string>({
+    name: `${name}.download`,
+    cacheTag: hash,
+    async run(build) {
+      const downloadPath = join(build.basePath, 'downloads')
+      await mkdir(downloadPath, { recursive: true })
+      const filename = url.replace(/.*[/]/, '')
+      const filePath = join(downloadPath, filename)
 
-    if (!(await fileExists(filePath))) {
-      console.log(`Getting ${filename}...`)
-      await build.exec('curl', ['-L', '-o', filePath, url])
+      if (!(await fileExists(filePath))) {
+        build.log(`Getting ${filename}...`)
+        await build.exec('curl', ['-L', '-o', filePath, url])
+      }
+
+      return hash
     }
-
-    return hash
   })
 }

@@ -18,7 +18,6 @@
 // | OpenSSL    | custom            | custom                |
 //
 
-import { asValue } from 'cleaners'
 import { mkdir, rm } from 'fs/promises'
 import { basename, join } from 'path'
 
@@ -37,8 +36,8 @@ import { addTask, startBuild } from './utils/tasks'
 const ffi = defineLib({
   name: 'ffi',
   hash: '1',
-  nonce: 1,
-  deps: ['lwsf'],
+  cacheTag: undefined, // Run every time
+  libDeps: ['lwsf'],
 
   async build(build, platform, prefixPath) {
     // Source list (from src/):
@@ -197,12 +196,11 @@ async function packageIosLwsf(platforms: IosPlatform[]): Promise<void> {
   ])
 }
 
-addTask('default', asValue(1), async build => {
-  await Promise.all([
-    build.runTask('ffi.build.android-arm64-v8a'),
-    build.runTask('ffi.build.android-armeabi-v7a')
-  ])
-  return 1
+addTask({
+  name: 'default',
+  cacheTag: 'default',
+  deps: ['ffi.build.android-arm64-v8a', 'ffi.build.android-armeabi-v7a'],
+  async run() {}
 })
 
 async function main(): Promise<void> {
@@ -225,4 +223,5 @@ async function main(): Promise<void> {
 
 main().catch((error: unknown) => {
   console.log(String(error))
+  process.exit(1)
 })

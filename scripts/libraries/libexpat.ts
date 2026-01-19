@@ -4,7 +4,7 @@ import { defineLib } from '../utils/lib'
 
 export const libexpat = defineLib({
   name: 'libexpat',
-  nonce: 1,
+  cacheTag: '0',
 
   // R_2_7_3:
   url: 'https://github.com/libexpat/libexpat.git',

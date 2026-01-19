@@ -21,7 +21,7 @@ const boostLibs = [
 
 export const boost = defineLib({
   name: 'boost',
-  nonce: 2,
+  cacheTag: '0',
   // recycle: true,
 
   url: `https://archives.boost.io/release/${version}/source/boost_${underVersion}.tar.bz2`,
