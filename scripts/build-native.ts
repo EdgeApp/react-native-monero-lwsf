@@ -161,6 +161,7 @@ const ffi = defineLib({
  * Creates a unified xcframework file out of the per-platform
  * static libraries that `buildIosLwsf` creates.
  */
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 async function packageIosLwsf(platforms: IosPlatform[]): Promise<void> {
   const sdks = new Set(platforms.map(row => row.sdk))
 
