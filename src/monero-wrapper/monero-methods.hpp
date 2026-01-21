@@ -1,15 +1,15 @@
-#ifndef LWSF_METHODS_HPP_INCLUDED
-#define LWSF_METHODS_HPP_INCLUDED
+#ifndef MONERO_METHODS_HPP_INCLUDED
+#define MONERO_METHODS_HPP_INCLUDED
 
 #include <string>
 #include <vector>
 
-struct LwsfMethod {
+struct MoneroMethod {
   const char *name;
   int argc;
   std::string (*method)(const std::vector<const std::string> &args);
 };
-extern const LwsfMethod lwsfMethods[];
-extern const unsigned lwsfMethodCount;
+extern const MoneroMethod moneroMethods[];
+extern const unsigned moneroMethodCount;
 
 #endif
