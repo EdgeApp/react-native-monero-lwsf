@@ -9,8 +9,8 @@
 //
 // | lib        | android           | ios                   |
 // |------------|-------------------|-----------------------|
-// | Boost      | custom            | ?                     |
-// | libexpat   | autotools/CMake   | autotools/CMake       |
+// | Boost      | custom            | custom                |
+// | libexpat   | autotools         | autotools             |
 // | libsodium  | autotools         | autotools             |
 // | libunbound | autotools         | autotools             |
 // | libzmq     | CMake             | CMake                 |
@@ -94,7 +94,8 @@ const ffi = defineLib({
           : ''
       await build.exec(useCxx ? platform.tools.CXX : platform.tools.CC, [
         '-c',
-        sdkFlags,
+        '-std=c++17',
+        ...sdkFlags.split(' '),
         ...includePaths.map(path => `-I${path}`),
         `-o${object}`,
         join(srcPath, source)
@@ -105,12 +106,13 @@ const ffi = defineLib({
       // Link everything together into a single giant .o file:
       const objectPath = join(build.cwd, 'monero-module.o')
       await build.exec(platform.tools.LD, [
-        '-fPIC',
         '-r',
         '-o',
         objectPath,
-        ...objects,
-        ...libPaths.map(path => `-L${path}`)
+        ...libPaths.map(path => `-L${path}`),
+        ...libs.map(lib => `-l${lib}`),
+        ...lwsLibs,
+        ...objects
       ])
 
       // Localize all symbols except the ones we really want,
