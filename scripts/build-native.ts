@@ -28,9 +28,9 @@ import { libunbound } from './libraries/libunbound'
 import { libzmq } from './libraries/libzmq'
 import { lwsf } from './libraries/lwsf'
 import { openssl } from './libraries/openssl'
-import { loudExec, lsr, tmpPath } from './utils/common'
+import { lsr, tmpPath } from './utils/common'
 import { defineLib } from './utils/lib'
-import { type IosPlatform, makePlatforms } from './utils/platforms'
+import { makeIosPlatforms, makePlatforms } from './utils/platforms'
 import { addTask, startBuild } from './utils/tasks'
 
 const ffi = defineLib({
@@ -121,8 +121,8 @@ const ffi = defineLib({
         objectPath,
         '-w',
         '-L*',
-        '-L!_lwsfMethods',
-        '-L!_lwsfMethodCount'
+        '-L!_moneroMethods',
+        '-L!_moneroMethodCount'
       ])
 
       // Generate a static library:
@@ -162,46 +162,58 @@ const ffi = defineLib({
  * Creates a unified xcframework file out of the per-platform
  * static libraries that `buildIosLwsf` creates.
  */
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
-async function packageIosLwsf(platforms: IosPlatform[]): Promise<void> {
-  const sdks = new Set(platforms.map(row => row.sdk))
+addTask({
+  name: 'xcframework',
+  deps: [
+    'ffi.build.iphoneos-arm64',
+    'ffi.build.iphonesimulator-arm64',
+    'ffi.build.iphonesimulator-x86_64'
+  ],
+  async run(build) {
+    const platforms = await makeIosPlatforms()
+    const sdks = new Set(platforms.map(row => row.sdk))
 
-  // Merge the platforms into a fat library:
-  const merged: string[] = []
-  for (const sdk of sdks) {
-    console.log(`Merging libraries for ${sdk}...`)
-    const outPath = join(tmpPath, `${sdk}-lipo`)
-    await mkdir(outPath, { recursive: true })
-    const output = join(outPath, 'liblwsf-module.a')
+    // Merge the platforms into a fat library:
+    const merged: string[] = []
+    for (const sdk of sdks) {
+      build.log(`Merging libraries for ${sdk}...`)
+      const sdkDir = join(build.cwd, sdk)
+      await mkdir(sdkDir, { recursive: true })
+      const output = join(sdkDir, 'libmonero-module.a')
 
-    await loudExec('lipo', [
-      '-create',
+      await build.exec('lipo', [
+        '-create',
+        '-output',
+        output,
+        ...platforms
+          .filter(platform => platform.sdk === sdk)
+          .map(({ sdk, arch }) =>
+            join(build.basePath, `build/ffi-${sdk}-${arch}`, `monero-module.a`)
+          )
+      ])
+      merged.push('-library', output)
+    }
+
+    // Bundle those into an XCFramework:
+    build.log('Creating XCFramework...')
+    await rm('ios/MoneroModule.xcframework', { recursive: true, force: true })
+    await build.exec('xcodebuild', [
+      '-create-xcframework',
+      ...merged,
       '-output',
-      output,
-      ...platforms
-        .filter(platform => platform.sdk === sdk)
-        .map(({ sdk, arch }) =>
-          join(tmpPath, `${sdk}-${arch}`, `liblwsf-module.a`)
-        )
+      join(__dirname, '../ios/MoneroModule.xcframework')
     ])
-    merged.push('-library', output)
   }
-
-  // Bundle those into an XCFramework:
-  console.log('Creating XCFramework...')
-  await rm('ios/LwsfModule.xcframework', { recursive: true, force: true })
-  await loudExec('xcodebuild', [
-    '-create-xcframework',
-    ...merged,
-    '-output',
-    join(__dirname, '../ios/LwsfModule.xcframework')
-  ])
-}
+})
 
 addTask({
   name: 'default',
   cacheTag: 'default',
-  deps: ['ffi.build.android-arm64-v8a', 'ffi.build.android-armeabi-v7a'],
+  deps: [
+    'ffi.build.android-arm64-v8a',
+    'ffi.build.android-armeabi-v7a',
+    'xcframework'
+  ],
   async run() {}
 })
 

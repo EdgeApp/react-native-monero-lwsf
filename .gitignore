@@ -1,6 +1,6 @@
 # Build output:
 /android/src/main/jniLibs/
-/ios/MoneroLwsf.xcframework/
+/ios/MoneroModule.xcframework/
 /lib/
 /node_modules/
 /tmp/
