@@ -26,3 +26,11 @@ export interface DerivedKeys {
   secretSpendKey: string
   publicSpendKey: string
 }
+
+/** Return type for openWallet and getWalletStatus. */
+export interface WalletStatus {
+  syncedHeight: number
+  networkHeight: number
+  balance: string
+  unlockedBalance: string
+}

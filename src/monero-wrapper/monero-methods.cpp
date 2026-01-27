@@ -1,6 +1,7 @@
 #include <stdio.h>
 #include <string>
 #include <stdexcept>
+#include <map>
 #include "monero-methods.hpp"
 #include "wallet/api/wallet2_api.h"
 #include "lws_frontend.h"
@@ -45,6 +46,25 @@ static Monero::WalletManager* getWalletManager(const std::string& backend) {
     return lwsf::WalletManagerFactory::getWalletManager();
   } else {
     return Monero::WalletManagerFactory::getWalletManager();
+  }
+}
+
+/**
+ * Validates that a walletId is safe to embed in a filesystem path. Wallet ids
+ * are base64url strings, so we only allow [A-Za-z0-9_-]; anything else (e.g. a
+ * '/', '.', or '\\') is rejected to prevent path traversal / unintended file
+ * locations.
+ */
+static void requireSafeWalletId(const std::string& walletId) {
+  if (walletId.empty()) {
+    throw std::runtime_error("Invalid walletId: empty");
+  }
+  for (char c : walletId) {
+    const bool ok = (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') ||
+                    (c >= '0' && c <= '9') || c == '-' || c == '_';
+    if (!ok) {
+      throw std::runtime_error("Invalid walletId: unsafe character");
+    }
   }
 }
 
@@ -184,10 +204,155 @@ std::string isValidAddress(const std::vector<const std::string> &args) {
   std::string address = args[0];
   int nettype = std::stoi(args[1]);
   Monero::NetworkType network = static_cast<Monero::NetworkType>(nettype);
-  
+
   // addressValid is a static method on Monero::Wallet
   bool valid = Monero::Wallet::addressValid(address, network);
   return valid ? "true" : "false";
+}
+
+/**
+ * Open or create a wallet.
+ * Args: documentDirectory, walletId, backend, mnemonic, password, nettype, restoreHeight, daemonAddress
+ * Returns: JSON with syncedHeight, networkHeight, balance, and unlockedBalance
+ */
+std::string openWallet(const std::vector<const std::string> &args) {
+  std::string documentDirectory = args[0];
+  std::string walletId = args[1];
+  std::string backend = args[2];
+  std::string mnemonic = args[3];
+  std::string password = args[4];
+  int nettype = std::stoi(args[5]);
+  uint64_t restoreHeight = std::stoull(args[6]);
+  std::string daemonAddress = args[7];
+  
+  Monero::NetworkType network = static_cast<Monero::NetworkType>(nettype);
+  Monero::WalletManager* manager = getWalletManager(backend);
+  
+  // Check if wallet is already open
+  auto it = g_wallets.find(walletId);
+  if (it != g_wallets.end()) {
+    WalletEntry& entry = it->second;
+    Monero::Wallet* wallet = entry.wallet;
+    wallet->startRefresh();
+    
+    uint64_t syncedHeight = wallet->blockChainHeight();
+    uint64_t networkHeight = wallet->daemonBlockChainHeight();
+    uint64_t balance = wallet->balanceAll();
+    uint64_t unlockedBalance = wallet->unlockedBalanceAll();
+    
+    entry.cachedSyncedHeight = syncedHeight;
+    entry.cachedBalance = balance;
+    entry.cachedUnlockedBalance = unlockedBalance;
+    
+    std::string json = "{";
+    json += "\"syncedHeight\":" + std::to_string(syncedHeight) + ",";
+    json += "\"networkHeight\":" + std::to_string(networkHeight) + ",";
+    json += "\"balance\":\"" + std::to_string(balance) + "\",";
+    json += "\"unlockedBalance\":\"" + std::to_string(unlockedBalance) + "\"";
+    json += "}";
+    return json;
+  }
+  
+  requireSafeWalletId(walletId);
+  std::string path = documentDirectory + "/" + backend + "_" + walletId;
+  
+  Monero::Wallet* wallet = nullptr;
+  
+  if (manager->walletExists(path)) {
+    wallet = manager->openWallet(path, password, network);
+    wallet->setRecoveringFromSeed(true);
+  } else {
+    wallet = manager->recoveryWallet(path, password, mnemonic, network, restoreHeight);
+  }
+  
+  if (wallet == nullptr) {
+    throw std::runtime_error("Failed to open or create wallet");
+  }
+  
+  if (wallet->status() != Monero::Wallet::Status_Ok) {
+    std::string error = wallet->errorString();
+    manager->closeWallet(wallet);
+    throw std::runtime_error("Wallet error: " + error);
+  }
+  
+  bool isLws = (backend == "lws");
+  wallet->init(daemonAddress, 0, "", "", false, isLws, "");
+
+  wallet->startRefresh();
+  
+  uint64_t syncedHeight = wallet->blockChainHeight();
+  uint64_t networkHeight = wallet->daemonBlockChainHeight();
+  uint64_t balance = wallet->balanceAll();
+  uint64_t unlockedBalance = wallet->unlockedBalanceAll();
+  
+  WalletEntry entry;
+  entry.wallet = wallet;
+  entry.backend = backend;
+  entry.path = path;
+  entry.walletId = walletId;
+  entry.cachedSyncedHeight = syncedHeight;
+  entry.cachedBalance = balance;
+  entry.cachedUnlockedBalance = unlockedBalance;
+  g_wallets[walletId] = entry;
+
+  std::string json = "{";
+  json += "\"syncedHeight\":" + std::to_string(syncedHeight) + ",";
+  json += "\"networkHeight\":" + std::to_string(networkHeight) + ",";
+  json += "\"balance\":\"" + std::to_string(balance) + "\",";
+  json += "\"unlockedBalance\":\"" + std::to_string(unlockedBalance) + "\"";
+  json += "}";
+  
+  return json;
+}
+
+/**
+ * Get wallet status (synced and network heights, balances).
+ * Args: walletId
+ * Returns: JSON with syncedHeight, networkHeight, balance, and unlockedBalance
+ */
+std::string getWalletStatus(const std::vector<const std::string> &args) {
+  std::string walletId = args[0];
+  WalletEntry& entry = findWalletOrThrow(walletId);
+  Monero::Wallet* wallet = entry.wallet;
+  
+  uint64_t syncedHeight = wallet->blockChainHeight();
+  bool heightChanged = (syncedHeight != entry.cachedSyncedHeight);
+  
+  if (heightChanged) {
+    entry.cachedBalance = wallet->balanceAll();
+    entry.cachedUnlockedBalance = wallet->unlockedBalanceAll();
+    entry.cachedSyncedHeight = syncedHeight;
+  }
+
+  uint64_t networkHeight = wallet->daemonBlockChainHeight();
+  uint64_t balance = entry.cachedBalance;
+  uint64_t unlockedBalance = entry.cachedUnlockedBalance;
+  
+  std::string json = "{";
+  json += "\"syncedHeight\":" + std::to_string(syncedHeight) + ",";
+  json += "\"networkHeight\":" + std::to_string(networkHeight) + ",";
+  json += "\"balance\":\"" + std::to_string(balance) + "\",";
+  json += "\"unlockedBalance\":\"" + std::to_string(unlockedBalance) + "\"";
+  json += "}";
+  
+  return json;
+}
+
+/**
+ * Close an open wallet.
+ * Args: walletId
+ * Returns: "ok"
+ */
+std::string closeWallet(const std::vector<const std::string> &args) {
+  std::string walletId = args[0];
+  WalletEntry& entry = findWalletOrThrow(walletId);
+  Monero::WalletManager* manager = getWalletManager(entry.backend);
+
+  manager->closeWallet(entry.wallet);
+  
+  g_wallets.erase(walletId);
+  
+  return "ok";
 }
 
 const MoneroMethod moneroMethods[] = {
@@ -195,7 +360,10 @@ const MoneroMethod moneroMethods[] = {
   { "generateWallet", 2, generateWallet },
   { "seedAndKeysFromMnemonic", 2, seedAndKeysFromMnemonic },
   { "getNetworkBlockHeight", 3, getNetworkBlockHeight },
-  { "isValidAddress", 2, isValidAddress }
+  { "isValidAddress", 2, isValidAddress },
+  { "openWallet", 8, openWallet },
+  { "getWalletStatus", 1, getWalletStatus },
+  { "closeWallet", 1, closeWallet },
 };
 
 const unsigned moneroMethodCount = std::end(moneroMethods) - std::begin(moneroMethods);
