@@ -31,11 +31,11 @@ Java_app_edge_rnmonero_RnMoneroModule_callMoneroJNI(
   }
 
   // Find the named method:
-  for (int i = 0; i < lwsfMethodCount; ++i) {
-    if (lwsfMethods[i].name != methodString) continue;
+  for (int i = 0; i < moneroMethodCount; ++i) {
+    if (moneroMethods[i].name != methodString) continue;
 
     // Validate the argument count:
-    if (strings.size() != lwsfMethods[i].argc) {
+    if (strings.size() != moneroMethods[i].argc) {
       env->ThrowNew(
         env->FindClass("java/lang/Exception"),
         "lwsf incorrect C++ argument count"
@@ -45,7 +45,7 @@ Java_app_edge_rnmonero_RnMoneroModule_callMoneroJNI(
 
     // Call the method, with error handling:
     try {
-      const std::string out = lwsfMethods[i].method(strings);
+      const std::string out = moneroMethods[i].method(strings);
       return env->NewStringUTF(out.c_str());
     } catch (std::exception &e) {
       env->ThrowNew(env->FindClass("java/lang/Exception"), e.what());
@@ -72,14 +72,14 @@ Java_app_edge_rnmonero_RnMoneroModule_getMethodNames(
   jobject self
 ) {
   jobjectArray out = env->NewObjectArray(
-    lwsfMethodCount,
+    moneroMethodCount,
     env->FindClass("java/lang/String"),
     env->NewStringUTF("")
   );
 if (!out) return nullptr;
 
-  for (int i = 0; i < lwsfMethodCount; ++i) {
-    jstring name = env->NewStringUTF(lwsfMethods[i].name);
+  for (int i = 0; i < moneroMethodCount; ++i) {
+    jstring name = env->NewStringUTF(moneroMethods[i].name);
     env->SetObjectArrayElement(out, i, name);
   }
   return out;

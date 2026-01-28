@@ -4,8 +4,8 @@ import { defineLib } from '../utils/lib'
 
 export const libunbound = defineLib({
   name: 'libunbound',
-  deps: ['libexpat', 'openssl'],
-  nonce: 2,
+  libDeps: ['libexpat', 'openssl'],
+  cacheTag: '0',
 
   // 1.24.1 (upstream wants 1.4.16)
   url: 'https://github.com/NLnetLabs/unbound.git',

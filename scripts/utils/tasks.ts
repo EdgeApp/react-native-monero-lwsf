@@ -5,7 +5,8 @@ import os from 'node:os'
 import { join } from 'node:path'
 
 import {
-  asArray,
+  asBoolean,
+  asDate,
   asJSON,
   asObject,
   asString,
@@ -19,15 +20,31 @@ import { makeRateLimiter } from './rateLimiter'
  * A build task that can be run.
  * Use `addTask` to ensure names are unique.
  */
-export interface Task<R> {
+export interface Task<R = unknown> {
   name: string
-  asResult: Cleaner<R>
+
+  /**
+   * Allows tasks to avoid re-running as long as the previous
+   * success had the same tag.
+   */
+  cacheTag?: string
+
+  /**
+   * Dependencies that must run first.
+   */
+  deps?: string[]
+
   run: (build: Build) => Promise<R>
 }
 
 interface ExecOptions {
-  cwd?: string
+  /** True to capture stdout as a string, and return it */
   capture?: true
+
+  /** The working directory. Defaults to `Build.cwd` */
+  cwd?: string
+
+  /** Extra environment variables to add to `Build.env` */
   env?: NodeJS.ProcessEnv
 }
 
@@ -35,15 +52,19 @@ interface ExecOptions {
  * Context about the current build.
  */
 export interface Build {
-  /** The top-level working directory. All output should go under here. */
+  /** The default working directory (typically `tmp`) */
   readonly basePath: string
 
-  /** Changes the default directory used for exec */
+  /** The default directory used for `exec`. Defaults to `basePath` */
   readonly cwd: string
+
+  /** Changes the default directory used for `exec` */
   cd: (path: string) => void
 
   /** Defines variables in the environment for `exec`. */
   readonly env: NodeJS.ProcessEnv
+
+  /** Adds or removes variables in the environment for `exec`. */
   exportEnv: (keys: Record<string, string | null>) => void
 
   /**
@@ -60,41 +81,25 @@ export interface Build {
    * Log output for the task.
    * Don't use `console.log`, since parallel builds will jumble everything.
    */
-  readonly logStream: WriteStream
   log: (message: string) => void
 
+  /** The output stream for all log messages. */
+  readonly logStream: WriteStream
+
   /**
-   * Launches another task, and returns its result.
+   * Runs an inline task once per build without touching the disk cache.
    */
-  runTask: <T extends string | Task<unknown>>(
-    nameOrTask: T
-  ) => Promise<T extends Task<infer R> ? R : unknown>
-}
-
-export class TaskError extends Error {
-  readonly taskName: string
-  readonly reason: unknown // The actual error
-
-  constructor(taskName: string, reason: unknown) {
-    super(`Task failed: ${taskName}`)
-    this.taskName = taskName
-    this.reason = reason
-  }
+  runTask: <R>(task: Task<R>) => Promise<R>
 }
 
 /**
  * Adds a task to the global registry, so it can be called by name.
  */
-export function addTask<R>(
-  name: string,
-  asResult: Cleaner<R>,
-  run: (build: Build) => Promise<R>
-): Task<R> {
-  if (allTasks.has(name)) {
-    throw new Error(`Task "${name}" already exists`)
+export function addTask<R>(task: Task<R>): Task<R> {
+  if (allTasks.has(task.name)) {
+    throw new Error(`Task "${task.name}" already exists`)
   }
-  const task: Task<R> = { name, asResult, run }
-  allTasks.set(name, task)
+  allTasks.set(task.name, task)
   return task
 }
 
@@ -111,79 +116,78 @@ export async function startBuild(
   await mkdir(logPath, { recursive: true })
   await mkdir(statusPath, { recursive: true })
 
-  // Used to guard against recursion
-  interface Stack {
-    task: Task<unknown>
-    parent: Stack | undefined
-  }
+  // Tasks we are running for real:
+  const outputs = new Map<Task, Promise<unknown>>()
 
-  // If we are already working on a task, don't work on it again:
-  type TaskState = Promise<{ clean: boolean; result: unknown }>
-  const states = new Map<Task<unknown>, TaskState>()
+  // Tasks we are trying to skip:
+  const cleanTasks = new Map<Task, Promise<boolean>>()
 
-  // eslint-disable-next-line @typescript-eslint/promise-function-async
-  function runTaskOnce(
-    task: Task<unknown>,
-    parent: Stack | undefined
-  ): TaskState {
-    const running = states.get(task)
-    if (running != null) return running
-    const state = runTaskInner(task, parent)
-    states.set(task, state)
-    return state
-  }
-
+  // Build.exec uses this to limit concurrency:
   const rateLimiter = makeRateLimiter(maxExec)
 
-  /**
-   * Tries to run a task, but checks disk first to see if we can skip.
-   */
-  async function runTaskInner(
-    task: Task<unknown>,
+  // Used to guard against recursion:
+  interface Stack {
+    task: Task
     parent: Stack | undefined
-  ): TaskState {
-    const stack: Stack = { task, parent }
-    const statusFile = join(statusPath, `${task.name}.json`)
-    const asOurStatusFile = asStatusFile(task.asResult)
-    const wasOurStatusFile = uncleaner(asOurStatusFile)
+  }
 
-    // First, load the status file and recurse into any saved dependencies:
-    try {
-      const text = await readFile(statusFile, { encoding: 'utf8' })
-      const file = asOurStatusFile(text)
-      const childStates = await Promise.all(
-        file.deps.map(
-          async name => await runTaskOnce(getTaskByName(name), stack)
-        )
-      )
-
-      // If everybody is clean, we can just use the cached result:
-      if (childStates.every(state => state.clean)) {
-        console.log(`${task.name} up-to-date`)
-        return { clean: true, result: file.result }
+  /**
+   * Throws if the given task already exists in the stack.
+   */
+  function checkRecursion(task: Task, parent: Stack | undefined): void {
+    const steps: string[] = [task.name]
+    for (let i: Stack | undefined = parent; i != null; i = i.parent) {
+      steps.push(i.task.name)
+      if (i.task === task) {
+        const trace = steps.reverse().join(' > ')
+        throw new Error(`Build recursion detected: ${trace}`)
       }
-    } catch (error) {
-      // Stop if the task ran but failed:
-      if (error instanceof TaskError) throw error
     }
+  }
 
-    // Otherwise, run the task for real:
+  /**
+   * Runs a task for real, if it isn't already running.
+   */
+  async function runTaskOnce<R>(
+    task: Task<R>,
+    parent: Stack | undefined
+  ): Promise<R> {
+    const running = outputs.get(task)
+    if (running != null) return await (running as Promise<R>)
+    const output = runTaskInternal(task, parent)
+    outputs.set(task, output)
+    return await output
+  }
+
+  async function runTaskInternal<R>(
+    task: Task<R>,
+    parent: Stack | undefined
+  ): Promise<R> {
+    // Guard against recursion:
+    checkRecursion(task, parent)
+
+    // Run the dependencies:
+    const deps = task.deps ?? []
+    await Promise.all(
+      deps.map(async name => await checkTaskOnce(name, { task, parent }))
+    )
+
+    // Prepare the build environment:
     const logFile = join(logPath, `${task.name}.log`)
     const fd = await open(logFile, 'w')
     const logStream = fd.createWriteStream({ encoding: 'utf8' })
 
-    let workPath = basePath
+    let currentPath = basePath
     const baseEnv = { ...process.env }
-    const deps = new Set<string>()
     const build: Build = {
       basePath,
 
       get cwd() {
-        return workPath
+        return currentPath
       },
 
       cd(path) {
-        workPath = path
+        currentPath = path
       },
 
       get env() {
@@ -197,7 +201,7 @@ export async function startBuild(
       },
 
       async exec(command, args = [], opts) {
-        const { capture = false, cwd = workPath, env = baseEnv } = opts ?? {}
+        const { capture = false, cwd = currentPath, env = baseEnv } = opts ?? {}
         logStream.write(`$ ${command} ${args.join(' ')}\n`)
 
         return await rateLimiter(async () => {
@@ -239,78 +243,125 @@ export async function startBuild(
       },
 
       logStream,
-      log(message: string): void {
+      log(message: string) {
         logStream.write(message + '\n')
       },
 
-      async runTask(nameOrTask) {
-        const task: Task<unknown> =
-          typeof nameOrTask === 'string'
-            ? getTaskByName(nameOrTask)
-            : nameOrTask
-
-        // Check for recursion before we start:
-        const steps: string[] = [task.name]
-        for (let i: Stack | undefined = stack; i != null; i = i.parent) {
-          steps.push(i.task.name)
-          if (i.task === task) {
-            const trace = steps.reverse().join(' > ')
-            throw new Error(`Build recursion detected: ${trace}`)
-          }
-        }
-
-        // No recursion, so it's a valid dependency:
-        deps.add(task.name)
-        const { result } = await runTaskOnce(task, stack)
-        return result as any
+      async runTask<R>(inlineTask: Task<R>): Promise<R> {
+        return await runTaskOnce(inlineTask, { task, parent })
       }
     }
 
-    console.log(`${task.name} started`)
-    return await task
-      .run(build)
-      .then(async result => {
-        // Save and return the result:
-        const text = wasOurStatusFile({
-          deps: [...deps],
-          result
-        })
-        await writeFile(statusFile, text, { encoding: 'utf8' })
-        console.log(`${task.name} completed`)
-        return { clean: false, result }
-      })
-      .catch((error: unknown) => {
-        if (!(error instanceof TaskError))
-          console.log(`${task.name} failed: ${String(error)}\n  See ${logFile}`)
-        throw new TaskError(task.name, error)
-      })
-      .finally(async () => {
-        // Close the log stream:
-        await new Promise<void>(resolve => logStream.end(resolve))
-      })
+    try {
+      console.log(`${task.name} started`)
+      const result = await task.run(build)
+      console.log(`${task.name} completed`)
+      await writeStatus(task, true)
+      return result
+    } catch (error) {
+      console.log(`${task.name} failed: ${String(error)}\n  See ${logFile}`)
+      await writeStatus(task, false)
+      throw error
+    } finally {
+      // Close the log stream:
+      await new Promise<void>(resolve => logStream.end(resolve))
+    }
   }
 
-  await runTaskOnce(getTaskByName(name), undefined)
+  async function writeStatus(task: Task, success: boolean): Promise<void> {
+    if (task.cacheTag == null) return
+
+    const statusFile = join(statusPath, `${task.name}.json`)
+    await writeFile(
+      statusFile,
+      wasStatusFile({
+        cacheTag: task.cacheTag,
+        lastRun: new Date(),
+        success
+      }),
+      { encoding: 'utf8' }
+    )
+  }
+
+  /**
+   * Tries to run a task, but checks disk first to see if we can skip.
+   * @return True if the task was already clean, or false if we ran it.
+   */
+  async function checkTaskOnce(
+    name: string,
+    parent: Stack | undefined
+  ): Promise<boolean> {
+    const task = getTaskByName(name)
+    const clean = cleanTasks.get(task)
+    if (clean != null) return await clean
+    const out = checkTaskInternal(task, parent)
+    cleanTasks.set(task, out)
+    return await out
+  }
+
+  async function checkTaskInternal(
+    task: Task,
+    parent: Stack | undefined
+  ): Promise<boolean> {
+    // Guard against recursion:
+    checkRecursion(task, parent)
+
+    // Run the dependencies:
+    const deps = task.deps ?? []
+    const depsClean = await Promise.all(
+      deps.map(async name => await checkTaskOnce(name, { task, parent }))
+    )
+
+    // We need to run if our dependencies were dirty:
+    if (task.cacheTag == null || depsClean.some(clean => !clean)) {
+      await runTaskOnce(task, parent)
+      return false
+    }
+
+    // Read the status file:
+    const statusFile = join(statusPath, `${task.name}.json`)
+    const status = await readFile(statusFile, { encoding: 'utf8' })
+      .then(asStatusFile)
+      .catch(() => {})
+
+    // Run the task if the status is bad:
+    if (
+      status == null ||
+      !status.success ||
+      status.cacheTag !== task.cacheTag
+    ) {
+      await runTaskOnce(task, parent)
+      return false
+    }
+
+    // All clean:
+    return true
+  }
+
+  await checkTaskOnce(name, undefined)
 }
 
 // The global task registry:
-const allTasks = new Map<string, Task<unknown>>()
+const allTasks = new Map<string, Task>()
 
-function getTaskByName(name: string): Task<unknown> {
+function getTaskByName(name: string): Task {
   const task = allTasks.get(name)
   if (task == null) throw new Error(`Cannot find task "${name}"`)
   return task
 }
 
-interface StatusFile<R> {
-  deps: string[]
-  result: R
+interface StatusFile {
+  cacheTag: string
+  lastRun: Date
+  success: boolean
 }
 
-const asStatusFile = <R>(asResult: Cleaner<R>): Cleaner<StatusFile<R>> =>
-  asJSON(
-    asObject({
-      deps: asArray(asString),
-      result: asResult
-    })
-  )
+const asStatusFile: Cleaner<StatusFile> = asJSON(
+  asObject({
+    cacheTag: asString,
+    lastRun: asDate,
+    success: asBoolean
+  })
+)
+
+const wasStatusFile = uncleaner(asStatusFile)

@@ -14,9 +14,9 @@ std::string getHeight(const std::vector<const std::string> &args) {
   return lwsf::displayAmount(height);
 }
 
-const LwsfMethod lwsfMethods[] = {
+const MoneroMethod moneroMethods[] = {
   { "hello", 0, hello },
   { "getHeight", 0, getHeight },
 };
 
-const unsigned lwsfMethodCount = std::end(lwsfMethods) - std::begin(lwsfMethods);
+const unsigned moneroMethodCount = std::end(moneroMethods) - std::begin(moneroMethods);

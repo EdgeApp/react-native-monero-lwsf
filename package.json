@@ -30,6 +30,7 @@
     "lint": "eslint .",
     "prepack": "npm run build-native",
     "prepare": "husky && lint-staged && rimraf lib && tsc",
+    "precommit": "npm run lint",
     "build-native": "ZERO_AR_DATE=1 node -r sucrase/register ./scripts/build-native.ts"
   },
   "devDependencies": {

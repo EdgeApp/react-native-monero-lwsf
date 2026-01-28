@@ -10,6 +10,6 @@ export default [
 
   // Global ignores need to be in their own block:
   {
-    ignores: ['lib/*']
+    ignores: ['lib/*', 'tmp/*']
   }
 ]

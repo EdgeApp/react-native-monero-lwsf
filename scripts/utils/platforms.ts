@@ -201,8 +201,7 @@ export async function makeIosPlatforms(): Promise<IosPlatform[]> {
         `-DCMAKE_SYSTEM_NAME=iOS`,
         `-DCMAKE_TOOLCHAIN_FILE=${join(tmpPath, 'ios-cmake/ios.toolchain.cmake')}`,
         `-DCMAKE_XCODE_ATTRIBUTE_ONLY_ACTIVE_ARCH=NO`,
-        `-DPLATFORM=${cmakePlatform}`,
-        `-GXcode`
+        `-DPLATFORM=${cmakePlatform}`
       ],
       sysroot,
       tools: {

@@ -5,7 +5,7 @@ import type { Platform } from '../utils/platforms'
 
 export const openssl = defineLib({
   name: 'openssl',
-  nonce: 2,
+  cacheTag: '0',
 
   // 3.6.0
   url: 'https://github.com/openssl/openssl.git',
