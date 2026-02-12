@@ -3,6 +3,8 @@
 
 #include <string>
 #include <vector>
+#include <functional>
+#include <mutex>
 
 struct MoneroMethod {
   const char *name;
@@ -11,5 +13,13 @@ struct MoneroMethod {
 };
 extern const MoneroMethod moneroMethods[];
 extern const unsigned moneroMethodCount;
+
+// Callback type for wallet events (walletId, eventName, jsonPayload)
+using WalletEventCallback = std::function<void(
+  const std::string&, const std::string&, const std::string&)>;
+
+// Set the global callback invoked by WalletListener on the SDK refresh thread.
+// Thread-safe: the callback is guarded by a mutex.
+void moneroSetEventCallback(WalletEventCallback cb);
 
 #endif

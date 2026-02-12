@@ -1,5 +1,6 @@
 {
   global:
+    JNI_OnLoad;
     Java_app_edge_rnmonero_RnMoneroModule_*;
   local:
     *;

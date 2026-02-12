@@ -1,4 +1,5 @@
 #import <React/RCTBridgeModule.h>
+#import <React/RCTEventEmitter.h>
 
-@interface MoneroModule : NSObject <RCTBridgeModule>
+@interface MoneroModule : RCTEventEmitter <RCTBridgeModule>
 @end

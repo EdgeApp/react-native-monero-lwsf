@@ -127,7 +127,8 @@ const ffi = defineLib({
         '-w',
         '-L*',
         '-L!_moneroMethods',
-        '-L!_moneroMethodCount'
+        '-L!_moneroMethodCount',
+        '-L!*moneroSetEventCallback*'
       ])
 
       // Generate a static library:

@@ -1,11 +1,49 @@
 #import "MoneroModule.h"
 #include "monero-methods.hpp"
 
+// Global pointer so the C++ callback can reach the ObjC module instance
+static __weak MoneroModule* g_module = nil;
+
 @implementation MoneroModule
 
-RCT_EXPORT_MODULE();
+RCT_EXPORT_MODULE(MoneroLwsfModule);
 
 + (BOOL)requiresMainQueueSetup { return NO; }
+
+- (instancetype)init {
+  self = [super init];
+  if (self) {
+    g_module = self;
+
+    // Wire the C++ wallet-event callback to this module's event emitter
+    moneroSetEventCallback([](const std::string& walletId,
+                              const std::string& eventName,
+                              const std::string& jsonPayload) {
+      MoneroModule* module = g_module;
+      if (module == nil) return;
+
+      NSString *nsWalletId  = [NSString stringWithUTF8String:walletId.c_str()];
+      NSString *nsEventName = [NSString stringWithUTF8String:eventName.c_str()];
+      NSString *nsPayload   = [NSString stringWithUTF8String:jsonPayload.c_str()];
+
+      dispatch_async(dispatch_get_main_queue(), ^{
+        [module sendEventWithName:@"MoneroWalletEvent" body:@{
+          @"walletId":  nsWalletId,
+          @"eventName": nsEventName,
+          @"data":      nsPayload
+        }];
+      });
+    });
+  }
+  return self;
+}
+
+- (NSArray<NSString *> *)supportedEvents {
+  return @[@"MoneroWalletEvent"];
+}
+
+- (void)startObserving {}
+- (void)stopObserving {}
 
 RCT_REMAP_METHOD(
   callMonero,

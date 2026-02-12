@@ -3,6 +3,10 @@
 #include <jni.h>
 #include <cstring>
 
+// --- Global JVM / module references for event callbacks ---
+static JavaVM* g_jvm = nullptr;
+static jobject g_moduleRef = nullptr;
+
 static const std::string unpackJstring(JNIEnv *env, jstring s) {
   const char *p = env->GetStringUTFChars(s, 0);
   const std::string out(p);
@@ -11,6 +15,13 @@ static const std::string unpackJstring(JNIEnv *env, jstring s) {
 }
 
 extern "C" {
+
+// Called automatically when the shared library is loaded.
+// Store the JavaVM pointer so we can attach to the JVM from any thread.
+JNIEXPORT jint JNI_OnLoad(JavaVM* vm, void* /*reserved*/) {
+  g_jvm = vm;
+  return JNI_VERSION_1_6;
+}
 
 JNIEXPORT jstring JNICALL
 Java_app_edge_rnmonero_RnMoneroModule_callMoneroJNI(
@@ -76,13 +87,62 @@ Java_app_edge_rnmonero_RnMoneroModule_getMethodNames(
     env->FindClass("java/lang/String"),
     env->NewStringUTF("")
   );
-if (!out) return nullptr;
+  if (!out) return nullptr;
 
   for (int i = 0; i < moneroMethodCount; ++i) {
     jstring name = env->NewStringUTF(moneroMethods[i].name);
     env->SetObjectArrayElement(out, i, name);
   }
   return out;
+}
+
+// Called from RnMoneroModule constructor to wire the C++ wallet-event
+// callback to the Java module's onWalletEvent method.
+JNIEXPORT void JNICALL
+Java_app_edge_rnmonero_RnMoneroModule_initEventCallback(
+  JNIEnv *env,
+  jobject self
+) {
+  // Replace any previous global ref
+  if (g_moduleRef != nullptr) {
+    env->DeleteGlobalRef(g_moduleRef);
+  }
+  g_moduleRef = env->NewGlobalRef(self);
+
+  moneroSetEventCallback([](const std::string& walletId,
+                            const std::string& eventName,
+                            const std::string& jsonPayload) {
+    if (g_jvm == nullptr || g_moduleRef == nullptr) return;
+
+    JNIEnv* cbEnv = nullptr;
+    bool didAttach = false;
+    int status = g_jvm->GetEnv(reinterpret_cast<void**>(&cbEnv), JNI_VERSION_1_6);
+    if (status == JNI_EDETACHED) {
+      if (g_jvm->AttachCurrentThread(&cbEnv, nullptr) != JNI_OK) return;
+      didAttach = true;
+    } else if (status != JNI_OK) {
+      return;
+    }
+
+    jclass cls = cbEnv->GetObjectClass(g_moduleRef);
+    jmethodID mid = cbEnv->GetMethodID(
+      cls, "onWalletEvent",
+      "(Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)V");
+
+    if (mid != nullptr) {
+      jstring jWalletId  = cbEnv->NewStringUTF(walletId.c_str());
+      jstring jEventName = cbEnv->NewStringUTF(eventName.c_str());
+      jstring jPayload   = cbEnv->NewStringUTF(jsonPayload.c_str());
+      cbEnv->CallVoidMethod(g_moduleRef, mid, jWalletId, jEventName, jPayload);
+      cbEnv->DeleteLocalRef(jWalletId);
+      cbEnv->DeleteLocalRef(jEventName);
+      cbEnv->DeleteLocalRef(jPayload);
+    }
+
+    if (didAttach) {
+      g_jvm->DetachCurrentThread();
+    }
+  });
 }
 
 }

@@ -27,6 +27,27 @@ namespace lwsf { namespace config {
 /** Counter for unique temp file names. */
 static uint64_t gTxFileCounter = 0;
 
+/** Escapes a string for safe embedding in JSON (defined below). */
+static std::string jsonEscape(const std::string& s);
+
+/** Global wallet-event callback (thread-safe). */
+static std::mutex g_eventCbMutex;
+static WalletEventCallback g_walletEventCallback;
+
+void moneroSetEventCallback(WalletEventCallback cb) {
+  std::lock_guard<std::mutex> lock(g_eventCbMutex);
+  g_walletEventCallback = std::move(cb);
+}
+
+static void emitWalletEvent(const std::string& walletId,
+                            const std::string& eventName,
+                            const std::string& jsonPayload) {
+  std::lock_guard<std::mutex> lock(g_eventCbMutex);
+  if (g_walletEventCallback) {
+    g_walletEventCallback(walletId, eventName, jsonPayload);
+  }
+}
+
 std::string hello(const std::vector<const std::string> &args) {
   printf("LWSF says hello\n");
   return "hello";
@@ -35,12 +56,18 @@ std::string hello(const std::vector<const std::string> &args) {
 /** WalletListener implementation - handles wallet events and auto-saves during sync. */
 class WalletListeners : public Monero::WalletListener {
 public:
-  WalletListeners(Monero::Wallet* wallet) : m_wallet(wallet), m_lastSaveHeight(0) {}
+  WalletListeners(Monero::Wallet* wallet, const std::string& walletId)
+    : m_wallet(wallet), m_walletId(walletId), m_lastSaveHeight(0) {}
   virtual ~WalletListeners() {}
   
   void moneySpent(const std::string &txId, uint64_t amount) override {}
+
   void moneyReceived(const std::string &txId, uint64_t amount) override {}
-  void unconfirmedMoneyReceived(const std::string &txId, uint64_t amount) override {}
+
+  void unconfirmedMoneyReceived(const std::string &txId, uint64_t amount) override {
+    emitWalletEvent(m_walletId, "pendingTransactionReceived",
+      "{\"txId\":\"" + txId + "\",\"amount\":" + std::to_string(amount) + "}");
+  }
   
   void newBlock(uint64_t height) override {
     // Save progress every 1000 blocks during INITIAL sync only.
@@ -77,6 +104,7 @@ public:
 
 private:
   Monero::Wallet* m_wallet;
+  std::string m_walletId;
   uint64_t m_lastSaveHeight;
 };
 
@@ -456,7 +484,7 @@ std::string getAllTransactions(const std::vector<const std::string> &args) {
   for (int i = startIndex; i < endIndex; i++) {
     if (i > startIndex) json += ",";
     Monero::TransactionInfo* tx = txs[i];
-    json += "{\"hash\":\"" + tx->hash() + "\",";
+    json += "{\"hash\":\"" + jsonEscape(tx->hash()) + "\",";
     json += "\"direction\":" + std::to_string(tx->direction()) + ",";
     json += "\"isPending\":" + std::string(tx->isPending() ? "true" : "false") + ",";
     json += "\"isFailed\":" + std::string(tx->isFailed() ? "true" : "false") + ",";
@@ -466,16 +494,16 @@ std::string getAllTransactions(const std::vector<const std::string> &args) {
     json += "\"blockHeight\":" + std::to_string(tx->blockHeight()) + ",";
     json += "\"confirmations\":" + std::to_string(tx->confirmations()) + ",";
     json += "\"timestamp\":" + std::to_string(tx->timestamp()) + ",";
-    json += "\"paymentId\":\"" + tx->paymentId() + "\",";
-    json += "\"description\":\"" + tx->description() + "\",";
-    json += "\"label\":\"" + tx->label() + "\",";
+    json += "\"paymentId\":\"" + jsonEscape(tx->paymentId()) + "\",";
+    json += "\"description\":\"" + jsonEscape(tx->description()) + "\",";
+    json += "\"label\":\"" + jsonEscape(tx->label()) + "\",";
     json += "\"unlockTime\":" + std::to_string(tx->unlockTime()) + ",";
     json += "\"subaddrAccount\":" + std::to_string(tx->subaddrAccount());
     
     try {
       std::string txKey = wallet->getTxKey(tx->hash());
       if (!txKey.empty()) {
-        json += ",\"txKey\":\"" + txKey + "\"";
+        json += ",\"txKey\":\"" + jsonEscape(txKey) + "\"";
       }
     } catch (...) {
     }
