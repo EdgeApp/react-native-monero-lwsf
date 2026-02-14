@@ -455,6 +455,34 @@ std::string closeWallet(const std::vector<const std::string> &args) {
 }
 
 /**
+ * Delete a wallet's files from disk. Closes the wallet first if it's open.
+ * Args: documentDirectory, walletId, backend
+ * Returns: "ok"
+ */
+std::string deleteWallet(const std::vector<const std::string> &args) {
+  std::string documentDirectory = args[0];
+  std::string walletId = args[1];
+  std::string backend = args[2];
+
+  auto it = g_wallets.find(walletId);
+  if (it != g_wallets.end()) {
+    WalletEntry& entry = it->second;
+    Monero::WalletManager* manager = getWalletManager(entry.backend);
+    entry.wallet->setListener(nullptr);
+    manager->closeWallet(entry.wallet);
+    g_wallets.erase(it);
+  }
+
+  requireSafeWalletId(walletId);
+  std::string path = documentDirectory + "/" + backend + "_" + walletId;
+  std::remove((path).c_str());
+  std::remove((path + ".keys").c_str());
+  std::remove((path + ".address.txt").c_str());
+
+  return "ok";
+}
+
+/**
  * Get all transactions with pagination.
  * Args: walletId, page (0-indexed), pageSize, sort ("asc" or "desc")
  * Returns: JSON with transactions array, totalCount, page, pageSize
@@ -756,6 +784,7 @@ const MoneroMethod moneroMethods[] = {
   { "getWalletStatus", 1, getWalletStatus },
   { "getAllTransactions", 4, getAllTransactions },
   { "closeWallet", 1, closeWallet },
+  { "deleteWallet", 3, deleteWallet },
   { "createTransaction", 5, createTransaction },
   { "broadcastTransaction", 3, broadcastTransaction },
   { "parseUri", 2, parseUri },
