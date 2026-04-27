@@ -42,7 +42,10 @@ const ffi = defineLib({
   async build(build, platform, prefixPath) {
     // Source list (from src/):
     const srcPath = join(__dirname, '../src')
-    const sources: string[] = ['monero-wrapper/monero-methods.cpp']
+    const sources: string[] = [
+      'monero-wrapper/monero-methods.cpp',
+      'monero-wrapper/nym-fetch.cpp'
+    ]
 
     // LWSF builds a *ton* of libraries,
     // but doesn't install them in the normal place:

@@ -9,6 +9,7 @@
 #include <sstream>
 #include <fstream>
 #include "monero-methods.hpp"
+#include "nym-fetch.hpp"
 #include "wallet/api/wallet2_api.h"
 #include "lws_frontend.h"
 
@@ -35,8 +36,53 @@ static std::mutex g_eventCbMutex;
 static WalletEventCallback g_walletEventCallback;
 
 void moneroSetEventCallback(WalletEventCallback cb) {
-  std::lock_guard<std::mutex> lock(g_eventCbMutex);
-  g_walletEventCallback = std::move(cb);
+  {
+    std::lock_guard<std::mutex> lock(g_eventCbMutex);
+    g_walletEventCallback = cb;
+  }
+
+  // Route nym fetch-request notifications through the same event pipeline
+  // used by wallet listeners. We reuse the "walletId" slot for the request
+  // id and pass the request payload as JSON data.
+  nymfetch::setFetchRequestCallback(
+    [](const std::string& requestId,
+       const std::string& url,
+       const std::string& method,
+       const std::string& headersJson,
+       const std::string& bodyBase64) {
+      std::ostringstream payload;
+      auto escape = [](const std::string& in) {
+        std::string out;
+        out.reserve(in.size() + 8);
+        for (char c : in) {
+          switch (c) {
+            case '"':  out += "\\\""; break;
+            case '\\': out += "\\\\"; break;
+            case '\n': out += "\\n"; break;
+            case '\r': out += "\\r"; break;
+            case '\t': out += "\\t"; break;
+            default:
+              if (static_cast<unsigned char>(c) < 0x20) {
+                char buf[8];
+                std::snprintf(buf, sizeof(buf), "\\u%04x", c);
+                out += buf;
+              } else {
+                out += c;
+              }
+          }
+        }
+        return out;
+      };
+      payload << "{\"url\":\"" << escape(url)
+              << "\",\"method\":\"" << escape(method)
+              << "\",\"headers\":" << (headersJson.empty() ? std::string("{}") : headersJson)
+              << ",\"bodyBase64\":\"" << escape(bodyBase64) << "\"}";
+
+      std::lock_guard<std::mutex> lock(g_eventCbMutex);
+      if (g_walletEventCallback) {
+        g_walletEventCallback(requestId, "nymFetchRequest", payload.str());
+      }
+    });
 }
 
 static void emitWalletEvent(const std::string& walletId,
@@ -774,6 +820,63 @@ std::string setLwsApiKey(const std::vector<std::string> &args) {
   return "ok";
 }
 
+/**
+ * Enable or disable routing LWSF HTTP requests through the JS fetch bridge
+ * (used for Nym mixnet support).
+ *
+ * Args:
+ *   enabled  - "true" or "false"
+ *   baseUrl  - scheme://host[:port] for the LWSF server; used when enabled
+ * Returns: "ok"
+ */
+std::string setNymEnabled(const std::vector<std::string> &args) {
+  const std::string& enabledStr = args[0];
+  const std::string& baseUrl = args[1];
+  const bool enabled = (enabledStr == "true" || enabledStr == "1");
+  nymfetch::setBaseUrl(baseUrl);
+  nymfetch::setEnabled(enabled);
+  return "ok";
+}
+
+/**
+ * Resolve a pending nym fetch request. Called from JS when the fetch
+ * completes successfully.
+ *
+ * Args:
+ *   requestId   - id sent with the original nymFetchRequest event
+ *   statusStr   - HTTP status code (stringified integer)
+ *   bodyBase64  - response body, base64-encoded
+ * Returns: "ok"
+ */
+std::string resolveFetch(const std::vector<std::string> &args) {
+  const std::string& requestId = args[0];
+  const std::string& statusStr = args[1];
+  const std::string& bodyBase64 = args[2];
+  int status = 0;
+  try {
+    status = std::stoi(statusStr);
+  } catch (...) {
+    status = 0;
+  }
+  nymfetch::resolveFetch(requestId, status, bodyBase64);
+  return "ok";
+}
+
+/**
+ * Reject a pending nym fetch request. Called from JS when the fetch fails.
+ *
+ * Args:
+ *   requestId     - id sent with the original nymFetchRequest event
+ *   errorMessage  - description of the failure
+ * Returns: "ok"
+ */
+std::string rejectFetch(const std::vector<std::string> &args) {
+  const std::string& requestId = args[0];
+  const std::string& errorMessage = args[1];
+  nymfetch::rejectFetch(requestId, errorMessage);
+  return "ok";
+}
+
 const MoneroMethod moneroMethods[] = {
   { "hello", 0, hello },
   { "generateWallet", 2, generateWallet },
@@ -790,6 +893,9 @@ const MoneroMethod moneroMethods[] = {
   { "parseUri", 2, parseUri },
   { "encodeUri", 6, encodeUri },
   { "setLwsApiKey", 1, setLwsApiKey },
+  { "setNymEnabled", 2, setNymEnabled },
+  { "resolveFetch", 3, resolveFetch },
+  { "rejectFetch", 2, rejectFetch },
 };
 
 const unsigned moneroMethodCount = std::end(moneroMethods) - std::begin(moneroMethods);

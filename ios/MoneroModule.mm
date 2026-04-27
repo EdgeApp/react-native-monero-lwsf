@@ -1,6 +1,16 @@
 #import "MoneroModule.h"
 #include "monero-methods.hpp"
 
+@interface MoneroModule () {
+  dispatch_queue_t _moneroQueue;
+  dispatch_queue_t _nymCompletionQueue;
+}
+@end
+
+static bool isNymCompletionMethod(const std::string& method) {
+  return method == "resolveFetch" || method == "rejectFetch";
+}
+
 // Global pointer so the C++ callback can reach the ObjC module instance
 static __weak MoneroModule* g_module = nil;
 
@@ -14,6 +24,10 @@ RCT_EXPORT_MODULE(MoneroLwsfModule);
   self = [super init];
   if (self) {
     g_module = self;
+    _moneroQueue = dispatch_queue_create(
+      "app.edge.rnmonero.monero", DISPATCH_QUEUE_SERIAL);
+    _nymCompletionQueue = dispatch_queue_create(
+      "app.edge.rnmonero.nymCompletion", DISPATCH_QUEUE_SERIAL);
 
     // Wire the C++ wallet-event callback to this module's event emitter
     moneroSetEventCallback([](const std::string& walletId,
@@ -73,21 +87,26 @@ RCT_REMAP_METHOD(
       return;
     }
 
-    // Call the method, with error handling:
-    try {
-      const std::string out = moneroMethods[i].method(strings);
-      resolve(
-        [NSString stringWithCString:out.c_str() encoding:NSUTF8StringEncoding]
-      );
-    } catch (std::exception &e) {
-      reject(
-        @"Error",
-        [NSString stringWithCString:e.what() encoding:NSUTF8StringEncoding],
-        nil
-      );
-    } catch (...) {
-      reject(@"Error", @"monero threw a C++ exception", nil);
-    }
+    const MoneroMethod methodInfo = moneroMethods[i];
+    dispatch_queue_t queue =
+      isNymCompletionMethod(methodString) ? _nymCompletionQueue : _moneroQueue;
+    dispatch_async(queue, ^{
+      // Call the method, with error handling:
+      try {
+        const std::string out = methodInfo.method(strings);
+        resolve(
+          [NSString stringWithCString:out.c_str() encoding:NSUTF8StringEncoding]
+        );
+      } catch (std::exception &e) {
+        reject(
+          @"Error",
+          [NSString stringWithCString:e.what() encoding:NSUTF8StringEncoding],
+          nil
+        );
+      } catch (...) {
+        reject(@"Error", @"monero threw a C++ exception", nil);
+      }
+    });
     return;
   }
 

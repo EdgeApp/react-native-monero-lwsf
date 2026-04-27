@@ -300,4 +300,57 @@ export class CppBridge {
   async setLwsApiKey(apiKey: string): Promise<void> {
     await this.module.callMonero('setLwsApiKey', [apiKey])
   }
+
+  /**
+   * Enable or disable the Nym fetch interceptor.
+   *
+   * When enabled, all LWSF HTTP POST requests that the C++ wallet code
+   * would have issued are redirected through the native event bridge. The
+   * consumer must register a handler via `NativeEventEmitter` on the
+   * "MoneroWalletEvent" event with `eventName === 'nymFetchRequest'` and
+   * call `resolveFetch` / `rejectFetch` to complete the request.
+   *
+   * @param enabled - Whether to route HTTP through the JS fetch bridge
+   * @param baseUrl - scheme://host[:port] of the LWSF server (must match
+   *                  the daemon address used at openWallet time). Empty
+   *                  when disabling.
+   */
+  async setNymEnabled(enabled: boolean, baseUrl: string): Promise<void> {
+    await this.module.callMonero('setNymEnabled', [
+      enabled ? 'true' : 'false',
+      baseUrl
+    ])
+  }
+
+  /**
+   * Resolve a pending nym fetch request that was emitted as a
+   * `nymFetchRequest` wallet event. Must be called with the same
+   * `requestId` carried on the incoming event.
+   *
+   * @param requestId  - id forwarded via the native event
+   * @param status     - HTTP status code returned from fetch
+   * @param bodyBase64 - response body encoded as base64
+   */
+  async resolveFetch(
+    requestId: string,
+    status: number,
+    bodyBase64: string
+  ): Promise<void> {
+    await this.module.callMonero('resolveFetch', [
+      requestId,
+      status.toString(),
+      bodyBase64
+    ])
+  }
+
+  /**
+   * Reject a pending nym fetch request. The blocked C++ caller will
+   * receive a runtime_error bubbled as an RPC failure.
+   *
+   * @param requestId    - id forwarded via the native event
+   * @param errorMessage - human-readable error description
+   */
+  async rejectFetch(requestId: string, errorMessage: string): Promise<void> {
+    await this.module.callMonero('rejectFetch', [requestId, errorMessage])
+  }
 }

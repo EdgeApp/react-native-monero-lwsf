@@ -102,11 +102,26 @@ export interface EncodeUriParams {
 }
 
 /** Wallet event names emitted by the native WalletListener. */
-export type WalletEventName = 'pendingTransactionReceived'
+export type WalletEventName = 'pendingTransactionReceived' | 'nymFetchRequest'
 
 /** Payload delivered by "MoneroWalletEvent" NativeEventEmitter events. */
 export interface WalletEventData {
   walletId: string
   eventName: WalletEventName
-  data: string // JSON string: { txId: string, amount: number }
+  /**
+   * JSON string whose shape depends on `eventName`:
+   *   - pendingTransactionReceived: { txId: string, amount: number }
+   *   - nymFetchRequest: { url, method, headers, bodyBase64 } — in this
+   *     case `walletId` holds the nym requestId that must be passed to
+   *     `resolveFetch` / `rejectFetch`.
+   */
+  data: string
+}
+
+/** Parsed payload for the `nymFetchRequest` wallet event. */
+export interface NymFetchRequestPayload {
+  url: string
+  method: string
+  headers: Record<string, string>
+  bodyBase64: string
 }

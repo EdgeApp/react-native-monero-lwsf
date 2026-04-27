@@ -10,6 +10,8 @@ import com.facebook.react.bridge.WritableMap;
 import com.facebook.react.modules.core.DeviceEventManagerModule;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 
 public class RnMoneroModule extends ReactContextBaseJavaModule {
   private native String callMoneroJNI(String method, String[] arguments);
@@ -18,6 +20,9 @@ public class RnMoneroModule extends ReactContextBaseJavaModule {
 
   // Sets the C++ callback so WalletListener events route through onWalletEvent
   private native void initEventCallback();
+
+  private final ExecutorService moneroExecutor = Executors.newSingleThreadExecutor();
+  private final ExecutorService nymCompletionExecutor = Executors.newSingleThreadExecutor();
 
   static {
     System.loadLibrary("rnmonero");
@@ -49,11 +54,19 @@ public class RnMoneroModule extends ReactContextBaseJavaModule {
       strings[i] = arguments.getString(i);
     }
 
-    try {
-      promise.resolve(callMoneroJNI(method, strings));
-    } catch (Exception e) {
-      promise.reject("MoneroError", e);
-    }
+    ExecutorService executor =
+      isNymCompletionMethod(method) ? nymCompletionExecutor : moneroExecutor;
+    executor.execute(() -> {
+      try {
+        promise.resolve(callMoneroJNI(method, strings));
+      } catch (Exception e) {
+        promise.reject("MoneroError", e);
+      }
+    });
+  }
+
+  private static boolean isNymCompletionMethod(String method) {
+    return "resolveFetch".equals(method) || "rejectFetch".equals(method);
   }
 
   // Required by React Native NativeEventEmitter on Android
