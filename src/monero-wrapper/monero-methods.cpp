@@ -48,7 +48,7 @@ static void emitWalletEvent(const std::string& walletId,
   }
 }
 
-std::string hello(const std::vector<const std::string> &args) {
+std::string hello(const std::vector<std::string> &args) {
   printf("LWSF says hello\n");
   return "hello";
 }
@@ -186,7 +186,7 @@ static Monero::Wallet* findWalletByNettype(int nettype) {
  * Args: nettype, language
  * Returns: JSON with mnemonic, secretSpendKey, publicSpendKey
  */
-std::string generateWallet(const std::vector<const std::string> &args) {
+std::string generateWallet(const std::vector<std::string> &args) {
   int nettype = std::stoi(args[0]);
   std::string language = args[1];
   
@@ -221,7 +221,7 @@ std::string generateWallet(const std::vector<const std::string> &args) {
  * Args: mnemonic, nettype
  * Returns: JSON with address, secretViewKey, publicViewKey, secretSpendKey, publicSpendKey
  */
-std::string seedAndKeysFromMnemonic(const std::vector<const std::string> &args) {
+std::string seedAndKeysFromMnemonic(const std::vector<std::string> &args) {
   std::string mnemonic_str = args[0];
   int nettype = std::stoi(args[1]);
   
@@ -267,7 +267,7 @@ std::string seedAndKeysFromMnemonic(const std::vector<const std::string> &args) 
  * Args: backend, nettype, daemonAddress
  * Returns: blockchain height as string
  */
-std::string getNetworkBlockHeight(const std::vector<const std::string> &args) {
+std::string getNetworkBlockHeight(const std::vector<std::string> &args) {
   std::string backend = args[0];
   int nettype = std::stoi(args[1]);
   std::string daemon_address = args[2];
@@ -293,7 +293,7 @@ std::string getNetworkBlockHeight(const std::vector<const std::string> &args) {
  * Args: address, nettype
  * Returns: "true" or "false"
  */
-std::string isValidAddress(const std::vector<const std::string> &args) {
+std::string isValidAddress(const std::vector<std::string> &args) {
   std::string address = args[0];
   int nettype = std::stoi(args[1]);
   Monero::NetworkType network = static_cast<Monero::NetworkType>(nettype);
@@ -308,7 +308,7 @@ std::string isValidAddress(const std::vector<const std::string> &args) {
  * Args: documentDirectory, walletId, backend, mnemonic, password, nettype, restoreHeight, daemonAddress
  * Returns: JSON with syncedHeight, networkHeight, balance, and unlockedBalance
  */
-std::string openWallet(const std::vector<const std::string> &args) {
+std::string openWallet(const std::vector<std::string> &args) {
   std::string documentDirectory = args[0];
   std::string walletId = args[1];
   std::string backend = args[2];
@@ -407,7 +407,7 @@ std::string openWallet(const std::vector<const std::string> &args) {
  * Args: walletId
  * Returns: JSON with syncedHeight, networkHeight, balance, and unlockedBalance
  */
-std::string getWalletStatus(const std::vector<const std::string> &args) {
+std::string getWalletStatus(const std::vector<std::string> &args) {
   std::string walletId = args[0];
   WalletEntry& entry = findWalletOrThrow(walletId);
   Monero::Wallet* wallet = entry.wallet;
@@ -440,7 +440,7 @@ std::string getWalletStatus(const std::vector<const std::string> &args) {
  * Args: walletId
  * Returns: "ok"
  */
-std::string closeWallet(const std::vector<const std::string> &args) {
+std::string closeWallet(const std::vector<std::string> &args) {
   std::string walletId = args[0];
   WalletEntry& entry = findWalletOrThrow(walletId);
   Monero::WalletManager* manager = getWalletManager(entry.backend);
@@ -459,7 +459,7 @@ std::string closeWallet(const std::vector<const std::string> &args) {
  * Args: documentDirectory, walletId, backend
  * Returns: "ok"
  */
-std::string deleteWallet(const std::vector<const std::string> &args) {
+std::string deleteWallet(const std::vector<std::string> &args) {
   std::string documentDirectory = args[0];
   std::string walletId = args[1];
   std::string backend = args[2];
@@ -487,7 +487,7 @@ std::string deleteWallet(const std::vector<const std::string> &args) {
  * Args: walletId, page (0-indexed), pageSize, sort ("asc" or "desc")
  * Returns: JSON with transactions array, totalCount, page, pageSize
  */
-std::string getAllTransactions(const std::vector<const std::string> &args) {
+std::string getAllTransactions(const std::vector<std::string> &args) {
   std::string walletId = args[0];
   int page = std::stoi(args[1]);
   int pageSize = std::stoi(args[2]);
@@ -560,7 +560,7 @@ static std::vector<std::string> splitString(const std::string& str, char delimit
  * Args: walletId, addresses (comma-separated), amounts (comma-separated), priority, documentDirectory
  * Returns: JSON with txid, signedTxHex, and fee
  */
-std::string createTransaction(const std::vector<const std::string> &args) {
+std::string createTransaction(const std::vector<std::string> &args) {
   std::string walletId = args[0];
   std::string addressesStr = args[1];
   std::string amountsStr = args[2];
@@ -644,7 +644,7 @@ std::string createTransaction(const std::vector<const std::string> &args) {
  * Args: walletId, signedTxHex (hex string from createTransaction), documentDirectory
  * Returns: "success" on success (txid is obtained from createTransaction result)
  */
-std::string broadcastTransaction(const std::vector<const std::string> &args) {
+std::string broadcastTransaction(const std::vector<std::string> &args) {
   std::string walletId = args[0];
   std::string signedTxHex = args[1];
   std::string documentDirectory = args[2];
@@ -697,7 +697,7 @@ static std::string jsonEscape(const std::string& s) {
  * Returns: JSON with address, paymentId, amount, txDescription, recipientName, unknownParameters
  * or JSON with error field on failure
  */
-std::string parseUri(const std::vector<const std::string> &args) {
+std::string parseUri(const std::vector<std::string> &args) {
   std::string uri = args[0];
   int nettype = std::stoi(args[1]);
   Monero::Wallet* wallet = findWalletByNettype(nettype);
@@ -735,7 +735,7 @@ std::string parseUri(const std::vector<const std::string> &args) {
  * Args: address, paymentId, amount (atomic string), txDescription, recipientName, nettype
  * Returns: URI string, or JSON with error field on failure
  */
-std::string encodeUri(const std::vector<const std::string> &args) {
+std::string encodeUri(const std::vector<std::string> &args) {
   std::string address = args[0];
   std::string paymentId = args[1];
   std::string amountStr = args[2];
@@ -768,7 +768,7 @@ std::string encodeUri(const std::vector<const std::string> &args) {
  * Args: apiKey
  * Returns: "ok"
  */
-std::string setLwsApiKey(const std::vector<const std::string> &args) {
+std::string setLwsApiKey(const std::vector<std::string> &args) {
   std::string apiKey = args[0];
   lwsf::config::set_api_key(apiKey);
   return "ok";

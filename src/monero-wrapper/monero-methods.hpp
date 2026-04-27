@@ -9,7 +9,7 @@
 struct MoneroMethod {
   const char *name;
   int argc;
-  std::string (*method)(const std::vector<const std::string> &args);
+  std::string (*method)(const std::vector<std::string> &args);
 };
 extern const MoneroMethod moneroMethods[];
 extern const unsigned moneroMethodCount;
