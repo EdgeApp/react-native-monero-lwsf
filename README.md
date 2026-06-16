@@ -1,4 +1,7 @@
-# react-native-monero-lwsf
+# react-native-monero-lwsf (moved)
+
+> **This repository has moved to [EdgeApp/react-native-monero](https://github.com/EdgeApp/react-native-monero).**
+> Development continues there under the `react-native-monero` package name. This repo is archived and read-only.
 
 This library packages Monero C++ client for use on React Native.
 
